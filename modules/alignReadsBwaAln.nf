@@ -1,3 +1,8 @@
+/*
+ * Align reads to the indexed genome. BwaAln is designed for shorter reads 
+ * (35-75 bp) and is an older, largely legacy tool. 
+ */
+
 process alignReadsBwaAln {
 
     if (params.platform == 'local') {

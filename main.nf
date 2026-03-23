@@ -9,8 +9,6 @@ log.info """\
     platform        : ${params.platform}
     samplesheet     : ${params.samplesheet}
     genome          : ${params.genome_file}
-    genome index    : ${params.genome_index_files}
-    index genome    : ${params.index_genome}
     qsr truth vcfs  : ${params.qsrVcfs}
     output directory: ${params.outdir}
     fastp           : ${params.fastp}
@@ -24,9 +22,16 @@ log.info """\
     ============================================
 """.stripIndent()
 
-// Conditionally include modules
-if (params.index_genome) {
-    include { indexGenome } from './modules/indexGenome'
+// Simple include modules
+include { sortBam } from './modules/sortBam'
+include { markDuplicates } from './modules/markDuplicates'
+include { indexBam } from './modules/indexBam'
+include { combineGVCFs } from './modules/processGVCFs'
+include { genotypeGVCFs } from './modules/processGVCFs'
+
+// Conditional include modules if selected 
+if (params.bqsr) {
+    include { baseRecalibrator } from './modules/BQSR'
 }
 if (params.fastp) {
     include { fastp } from './modules/fastp'
@@ -35,14 +40,31 @@ if (params.fastqc) {
     include { FASTQC as FASTQC_RAW } from './modules/FASTQC'
     include { FASTQC as FASTQC_TRIMMED } from './modules/FASTQC'
 }
-include { sortBam } from './modules/sortBam'
-include { markDuplicates } from './modules/markDuplicates'
-include { indexBam } from './modules/indexBam'
-if (params.bqsr) {
-    include { baseRecalibrator } from './modules/BQSR'
+if (params.degraded_dna) {
+    include { mapDamage2 } from './modules/mapDamage'
+    include { indexMapDamageBam } from './modules/indexBam'
 }
-include { combineGVCFs } from './modules/processGVCFs'
-include { genotypeGVCFs } from './modules/processGVCFs'
+
+// Include alignment modules based on chosen aligner 
+switch(params.aligner) {
+    case 'bwa-mem':
+        include { alignReadsBwaMem } from './modules/alignReadsBwaMem'
+        include { bwaIndexGenome } from './modules/bwaIndexGenome'
+        break
+    case 'bwa-aln': 
+        include { alignReadsBwaAln } from './modules/alignReadsBwaAln'
+        include { bwaIndexGenome } from './modules/bwaIndexGenome'
+        break
+    case 'bowtie2':
+        include { alignReadsBowtie2 } from './modules/alignReadsBowtie2'
+        include { bowtie2IndexGenome } from './modules/bowtie2IndexGenome'
+        break
+    default: 
+        error "Unsupported aligner: ${params.aligner}. Please specify 'bwa-mem', 'bwa-aln', or 'bowtie2'."
+}
+
+// TODO: Update downstream include statements 
+
 if (params.variant_recalibration) {
     include { variantRecalibrator } from './modules/variantRecalibrator'
 } else {
@@ -51,52 +73,70 @@ if (params.variant_recalibration) {
 if (params.identity_analysis) {
     include { identityAnalysis } from './modules/identityAnalysis'
 }
-if (params.aligner == 'bwa-mem') {
-    include { alignReadsBwaMem } from './modules/alignReadsBwaMem'
-} else if (params.aligner == 'bwa-aln') {
-    include { alignReadsBwaAln } from './modules/alignReadsBwaAln'
-} else {
-    error "Unsupported aligner: ${params.aligner}. Please specify 'bwa-mem' or 'bwa-aln'."
-}
+
 if (params.variant_caller == 'haplotype-caller') {
     include { haplotypeCaller } from './modules/haplotypeCaller'
 } else {
     error "Unsupported variant caller: ${params.variant_caller}. Please specify 'haplotype-caller'."
 }
 
-if (params.degraded_dna) {
-    include { mapDamage2 } from './modules/mapDamage'
-    include { indexMapDamageBam } from './modules/indexBam'
-}
-
+// Workflow 
 workflow {
 
-    // User decides to index genome or not
-    if (params.index_genome){
-        // Flatten as is of format [fasta, [rest of files..]]
-        indexed_genome_ch = indexGenome(params.genome_file).flatten()
-    }
-    else {
-        indexed_genome_ch = Channel.fromPath(params.genome_index_files)
-    }
+    // // User decides to index genome or not
+    // if (params.index_genome){
+    //     // Flatten as is of format [fasta, [rest of files..]]
+    //     indexed_genome_ch = indexGenome(params.genome_file).flatten()
+    // }
+    // else {
+    //     indexed_genome_ch = Channel.fromPath(params.genome_index_files)
+    // }
 
     // Create qsrc_vcf_ch channel
     qsrc_vcf_ch = Channel.fromPath(params.qsrVcfs)
 
-    // Set channel to gather read_pairs
+    // Gather read pairs from samplesheet
     read_pairs_ch = Channel
         .fromPath(params.samplesheet)
         .splitCsv(sep: '\t')
         .map { row ->
-            if (row.size() == 4) {
-                tuple(row[0], [row[1], row[2]])
-            } else if (row.size() == 3) {
-                tuple(row[0], [row[1]])
-            } else {
-                error "Unexpected row format in samplesheet: $row"
-            }
+            if (row.size() == 4) tuple(row[0], [row[1], row[2]])
+            else if (row.size() == 3) tuple(row[0], [row[1]])
+            else error "Unexpected row format in samplesheet: $row"
         }
     read_pairs_ch.view()
+
+    // INDEX CHECK & CREATION (FOR ALIGNMENT) 
+    // Define paths for index files based on aligner 
+    def bwa_index_dir = params.bwa_index_dir
+    def bowtie2_index_dir = params.bowtie2_index_dir
+
+    switch(params.aligner) {
+        case ['bwa-mem', 'bwa-aln']:
+            // Check for existing BWA index files
+            def bwa_index_files = new File(bwa_index_dir).listFiles()?.findAll { it.name.endsWith('.amb') }
+             if (new File(bwa_index_dir).exists() && bwa_index_files && bwa_index_files.size() > 0) {
+                log.info "BWA index files found. Using existing index."
+                indexed_genome_ch = Channel.fromPath("${bwa_index_dir}/*")
+            } else {
+                log.info "No BWA index found. Running bwaIndexGenome module..."
+                indexed_genome_ch = bwaIndexGenome(params.genome_file)
+            }
+            break
+        case 'bowtie2':
+            // Check for existing Bowtie2 index files 
+            def bowtie2_index_files = new File(bowtie2_index_dir).listFiles()?.findAll { it.name.endsWith('.bt2') }
+            if (new File(bowtie2_index_dir).exists() && bowtie2_index_files && bowtie2_index_files.size() > 0) {
+                log.info "Bowtie2 index files found. Using existing index."
+                indexed_genome_ch = Channel.fromPath("${bowtie2_index_dir}/*")
+            } else {
+                log.info "No Bowtie2 index found. Running bowtie2IndexGenome module..."
+                indexed_genome_ch = bowtie2IndexGenome(params.genome_file)
+            }
+            break
+        default:
+            error "Unsupported aligner: ${params.aligner}. Please specify 'bwa-mem', 'bwa-aln', or 'bowtie2'."
+    }
 
     // Run FASTQC on read pairs before fastp
     if (params.fastqc) {
@@ -136,12 +176,26 @@ workflow {
         }
     }
 
-    // Align reads to the indexed genome
-    if (params.aligner == 'bwa-mem') {
-        align_ch = alignReadsBwaMem(read_pairs_for_alignment, indexed_genome_ch.collect())
-    } else if (params.aligner == 'bwa-aln') {
-        align_ch = alignReadsBwaAln(read_pairs_for_alignment, indexed_genome_ch.collect())
+    // ALIGNMENT 
+    def align_ch
+    switch(params.aligner) {
+        case 'bwa-mem':
+            align_ch = alignReadsBwaMem(read_pairs_for_alignment, indexed_genome_ch.collect())
+            break
+        case 'bwa-aln':
+            align_ch = alignReadsBwaAln(read_pairs_for_alignment, indexed_genome_ch.collect())
+            break
+        case 'bowtie2':
+            align_ch = alignReadsBowtie2(read_pairs_for_alignment, indexed_genome_ch.collect())
+            break
     }
+
+    // // Align reads to the indexed genome
+    // if (params.aligner == 'bwa-mem') {
+    //     align_ch = alignReadsBwaMem(read_pairs_for_alignment, indexed_genome_ch.collect())
+    // } else if (params.aligner == 'bwa-aln') {
+    //     align_ch = alignReadsBwaAln(read_pairs_for_alignment, indexed_genome_ch.collect())
+    // }
 
     return
 

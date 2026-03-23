@@ -1,19 +1,21 @@
 /*
- * Define the indexGenome process that creates a BWA index
- * given the genome fasta file
+ * Create BWA index from a reference genome
+ * For BwaAln and BwaMem alignment modules 
  */
-process indexGenome {
+process bwaIndexGenome {
+
+    tag "${genomeFasta}"
 
     if (params.platform == 'local') {
         label 'process_low'
     } else if (params.platform == 'cloud') {
         label 'process_medium'
     }
+
     container 'variantvalidator/indexgenome:1.1.0'
 
-
-    // Publish indexed files to the specified directory
-    publishDir("$params.outdir/GENOME_IDX", mode: "copy")
+    // Published index files to directory specified in config: 
+    publishDir(path: "$params.resources_dir/indexes/bwa", mode: 'copy')
 
     input:
     path genomeFasta
@@ -23,7 +25,7 @@ process indexGenome {
 
     script:
     """
-    echo "Running Index Genome"
+    echo "Running BWA Indexing"
 
     # Generate BWA index
     bwa index "${genomeFasta}"
@@ -34,6 +36,6 @@ process indexGenome {
     # Generate Fasta dict
     picard CreateSequenceDictionary R="${genomeFasta}" O="${genomeFasta}.dict"
 
-    echo "Genome Indexing complete."
+    echo "BWA Genome Indexing complete."
     """
 }
