@@ -14,7 +14,7 @@ process alignReadsBwaMem {
 
     container 'community.wave.seqera.io/library/bwa_samtools:3704450416e4d5eb'
 
-    publishDir(path: "${params.outdir}/alignment/bwa_mem", mode: 'copy')
+    publishDir(path: "${params.outdir}/alignment/${params.aligner}", mode: 'copy')
 
     input:
     tuple val(sample_id), path(reads)   // reads is a tuple of paths for paired-end reads
