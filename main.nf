@@ -83,15 +83,6 @@ if (params.variant_caller == 'haplotype-caller') {
 // Workflow 
 workflow {
 
-    // // User decides to index genome or not
-    // if (params.index_genome){
-    //     // Flatten as is of format [fasta, [rest of files..]]
-    //     indexed_genome_ch = indexGenome(params.genome_file).flatten()
-    // }
-    // else {
-    //     indexed_genome_ch = Channel.fromPath(params.genome_index_files)
-    // }
-
     // Create qsrc_vcf_ch channel
     qsrc_vcf_ch = Channel.fromPath(params.qsrVcfs)
 
@@ -120,7 +111,8 @@ workflow {
                 indexed_genome_ch = Channel.fromPath("${bwa_index_dir}/*")
             } else {
                 log.info "No BWA index found. Running bwaIndexGenome module..."
-                indexed_genome_ch = bwaIndexGenome(params.genome_file)
+                genome_ch = Channel.fromPath(params.genome_file)
+                indexed_genome_ch = bwaIndexGenome(genome_ch)
             }
             break
         case 'bowtie2':
@@ -131,7 +123,8 @@ workflow {
                 indexed_genome_ch = Channel.fromPath("${bowtie2_index_dir}/*")
             } else {
                 log.info "No Bowtie2 index found. Running bowtie2IndexGenome module..."
-                indexed_genome_ch = bowtie2IndexGenome(params.genome_file)
+                genome_ch = Channel.fromPath(params.genome_file)
+                indexed_genome_ch = bowtie2IndexGenome(genome_ch)
             }
             break
         default:
@@ -189,13 +182,6 @@ workflow {
             align_ch = alignReadsBowtie2(read_pairs_for_alignment, indexed_genome_ch.collect())
             break
     }
-
-    // // Align reads to the indexed genome
-    // if (params.aligner == 'bwa-mem') {
-    //     align_ch = alignReadsBwaMem(read_pairs_for_alignment, indexed_genome_ch.collect())
-    // } else if (params.aligner == 'bwa-aln') {
-    //     align_ch = alignReadsBwaAln(read_pairs_for_alignment, indexed_genome_ch.collect())
-    // }
 
     return
 
