@@ -13,7 +13,7 @@ process indexBam {
     tag "$bamFile"
 
     // Publish indexed BAM files to the specified directory
-    publishDir("$params.outdir/BAM", mode: "copy")
+    publishDir("$params.outdir/alignment/${params.aligner}/indexed", mode: "copy")
 
     input:
     tuple val(sample_id), file(bamFile)
@@ -43,7 +43,7 @@ process indexMapDamageBam {
     tag "$bamFile"
 
     // Publish indexed BAM files to the specified directory
-    publishDir("$params.outdir/BAM", mode: "copy")
+    publishDir("$params.outdir/alignment/${params.aligner}/indexed_final", mode: "copy")
 
     input:
     tuple val(sample_id), file(bamFile)

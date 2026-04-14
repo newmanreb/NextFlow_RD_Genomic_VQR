@@ -10,6 +10,8 @@ process combineGVCFs {
 
     tag "${sample_ids.join('_')}" // Add a tag based on the sample IDs
 
+    publishDir(path: "${params.outdir}/VCF/intermediate", mode: 'copy')
+
     input:
     tuple val(sample_ids), path(gvcf_files), path(gvcf_index_files)
     tuple file(fasta), file(fai), file(dict) 
@@ -44,6 +46,8 @@ process genotypeGVCFs {
     container 'variantvalidator/gatk4:4.3.0.0'
 
     tag "$combined_sample_id"
+
+    publishDir(path: "${params.outdir}/VCF/genotyped", mode: 'copy')
 
     input:
     tuple val(combined_sample_id), file(combined_gvcf), file(combined_gvcf_idx)

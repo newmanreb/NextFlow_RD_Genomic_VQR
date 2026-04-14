@@ -13,7 +13,7 @@ process markDuplicates {
     tag "$bamFile"
 
     // Publish deduplicated BAM files to the specified directory
-    publishDir("$params.outdir/BAM", mode: "copy")
+    publishDir("$params.outdir/alignment/${params.aligner}/deduplicated", mode: "copy")
 
     input:
     tuple val(sample_id), file(bamFile)
