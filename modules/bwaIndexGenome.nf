@@ -30,12 +30,6 @@ process bwaIndexGenome {
     # Generate BWA index
     bwa index "${genomeFasta}"
 
-    # Generate samtools faidx
-    samtools faidx "${genomeFasta}"
-
-    # Generate Fasta dict
-    picard CreateSequenceDictionary R="${genomeFasta}" O="${genomeFasta}.dict"
-
     echo "BWA Genome Indexing complete."
     """
 }

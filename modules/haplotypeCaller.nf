@@ -2,6 +2,7 @@
 nextflow.enable.dsl = 2
 
 process haplotypeCaller {
+
     if (params.platform == 'local') {
         label 'process_low'
     } else if (params.platform == 'cloud') {
@@ -13,7 +14,7 @@ process haplotypeCaller {
 
     input:
     tuple val(sample_id), file(bamFile), file(bamIndex)
-    path indexFiles
+    tuple file(fasta), file(fai), file(dict)
 
     output:
     tuple val(sample_id), file("*.vcf"), file("*.vcf.idx")
@@ -22,23 +23,18 @@ process haplotypeCaller {
     """
     echo "Running HaplotypeCaller for Sample: ${bamFile}"
 
-    if [[ -n ${params.genome_file} ]]; then
-        genomeFasta=\$(basename ${params.genome_file})
-    else
-        genomeFasta=\$(find -L . -name '*.fasta')
-    fi
+    genomeFasta="\$(basename ${fasta})"
 
     echo "Genome File: \${genomeFasta}"
-
-    # Rename the dictionary file to the expected name if it exists
-    if [[ -e "\${genomeFasta}.dict" ]]; then
-        mv "\${genomeFasta}.dict" "\${genomeFasta%.*}.dict"
-    fi
 
     outputVcf="\$(basename ${bamFile} _sorted_dedup_recalibrated.bam).vcf"
 
     # Use GATK HaplotypeCaller to call variants in gVCF mode with specified annotations
-    gatk HaplotypeCaller -R "\${genomeFasta}" -I ${bamFile} -O "\${outputVcf}" -ERC GVCF \
+    gatk HaplotypeCaller \
+        -R "\${genomeFasta}" \
+        -I ${bamFile} \
+        -O "\${outputVcf}" \
+        -ERC GVCF \
         -A BaseQuality -A DepthPerSampleHC -A MappingQuality -A QualByDepth \
         -A MappingQualityRankSumTest -A ReadPosRankSumTest -A FisherStrand -A StrandOddsRatio \
         -A MappingQualityZero -A InbreedingCoeff -A BaseQualityRankSumTest -A HaplotypeFilteringAnnotation

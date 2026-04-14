@@ -28,6 +28,7 @@ include { markDuplicates } from './modules/markDuplicates'
 include { indexBam } from './modules/indexBam'
 include { combineGVCFs } from './modules/processGVCFs'
 include { genotypeGVCFs } from './modules/processGVCFs'
+include { prepareReference } from './modules/prepareReference'
 
 // Conditional include modules if selected 
 if (params.bqsr) {
@@ -96,6 +97,10 @@ workflow {
             else error "Unexpected row format in samplesheet: $row"
         }
     read_pairs_ch.view()
+
+    // Create a channel for the reference genome and prepare .fai and .dict for reference
+    reference_ch = Channel.fromPath(params.genome_file)
+    prepared_reference_ch = prepareReference(reference_ch)
 
     // INDEX CHECK & CREATION (FOR ALIGNMENT) 
     // Define paths for index files based on aligner 
@@ -183,8 +188,6 @@ workflow {
             break
     }
 
-    return
-
     // Sort BAM files
     sort_ch = sortBam(align_ch)
 
@@ -197,7 +200,10 @@ workflow {
     // Conditionally run mapDamage if degraded_dna parameter is set
     if (params.degraded_dna) {
         // Run mapDamage2 process only if degraded_dna is true
-        pre_mapDamage_ch = mapDamage2(indexed_bam_ch, indexed_genome_ch.collect())
+        pre_mapDamage_ch = mapDamage2(
+            indexed_bam_ch, 
+            reference_ch,
+        )
         mapDamage_ch = indexMapDamageBam(pre_mapDamage_ch)
     } else {
         // If degraded_dna is not true, just pass through the sorted BAM files
@@ -212,7 +218,12 @@ workflow {
 
     if (params.bqsr) {
         // Run BQSR on indexed BAM files
-        bqsr_ch = baseRecalibrator(mapDamage_ch, knownSites_ch, indexed_genome_ch.collect(), qsrc_vcf_ch.collect())
+        bqsr_ch = baseRecalibrator(
+            mapDamage_ch, 
+            knownSites_ch, 
+            reference_ch, 
+            qsrc_vcf_ch.collect()
+        )
 
     } else {
         // If BQSR is skipped, just pass through the mapDamage_ch channel
@@ -221,23 +232,34 @@ workflow {
 
     // Run HaplotypeCaller on BQSR files
     if (params.variant_caller == "haplotype-caller") {
-        gvcf_ch = haplotypeCaller(bqsr_ch, indexed_genome_ch.collect()).collect()
+        gvcf_ch = haplotypeCaller(bqsr_ch, prepared_reference_ch)
     }
+
+    gvcf_ch.view { x -> "DEBUG GVCF_CH: ${x}" }
 
     // Now we map to create separate lists for sample IDs, VCF files, and index files
     all_gvcf_ch = gvcf_ch
-        .collect { listOfTuples ->
-            def sample_ids = listOfTuples.collate(3).collect { it[0] }   // Collect sample IDs from every 3rd element
-            def vcf_files = listOfTuples.collate(3).collect { it[1] }    // Collect VCF files
-            def vcf_index_files = listOfTuples.collate(3).collect { it[2] } // Collect VCF index files
-            return tuple(sample_ids, vcf_files, vcf_index_files)
-        }
+    .toList()
+    .map { rows ->
+
+        def sample_ids = rows.collect { it[0] }
+        def gvcf_files = rows.collect { it[1] }
+        def gvcf_idx_files = rows.collect { it[2] }
+
+        println "SAMPLE IDS: $sample_ids"
+        println "GVCFs: $gvcf_files"
+        println "INDEXES: $gvcf_idx_files"
+
+        tuple(sample_ids, gvcf_files, gvcf_idx_files)
+    }
+
+    all_gvcf_ch.view { x -> "DEBUG ALL_GVCF_CH: ${x}" } 
 
     // Combine GVCFs
-    combined_gvcf_ch = combineGVCFs(all_gvcf_ch, indexed_genome_ch.collect())
+    combined_gvcf_ch = combineGVCFs(all_gvcf_ch, prepared_reference_ch)
 
     // Run GenotypeGVCFs
-    final_vcf_ch = genotypeGVCFs(combined_gvcf_ch, indexed_genome_ch.collect())
+    final_vcf_ch = genotypeGVCFs(combined_gvcf_ch, prepared_reference_ch)
 
     // Conditionally apply variant recalibration or filtering
     if (params.variant_recalibration) {
@@ -261,9 +283,9 @@ workflow {
                 return "--resource:${baseName},${resourceArgs} ${file.getName()}" // Only the filename, no full path
             }
             .collect()
-        filtered_vcf_ch = variantRecalibrator(final_vcf_ch, knownSitesArgs_ch, indexed_genome_ch.collect(), qsrc_vcf_ch.collect())
+        filtered_vcf_ch = variantRecalibrator(final_vcf_ch, knownSitesArgs_ch, prepared_reference_ch, qsrc_vcf_ch.collect())
     } else {
-        filtered_vcf_ch = filterVCF(final_vcf_ch, indexed_genome_ch.collect())
+        filtered_vcf_ch = filterVCF(final_vcf_ch, prepared_reference_ch)
     }
 
     // Conditionally run identityAnalysis if identity_analysis is true
