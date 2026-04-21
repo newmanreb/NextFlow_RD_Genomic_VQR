@@ -8,7 +8,7 @@ process filterVCF {
 
     tag "$vcfFile"
 
-    publishDir("$params.outdir/VCF", mode: "copy")
+    publishDir(path: "${params.outdir}/VCF/filtered", mode: 'copy')
 
     input:
     tuple val(sample_id), file(vcfFile), file(vcfIndex)
