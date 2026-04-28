@@ -1,0 +1,61 @@
+{
+  "name": "RN_Nextflow_RD_Genomic",
+  "title": "Nextflow RD Genomic Pipeline by R Newman",
+  "summary": "A simple base Rare disease and germline genomics pipeline",
+  "dxapi": "1.0.0",
+  "version": "0.1.0",
+  "inputSpec": [
+    {
+      "name": "samplesheet",
+      "class": "file"
+    },
+    {
+      "name": "reference",
+      "class": "file"
+    },
+    {
+      "name": "aligner",
+      "class": "string",
+      "default": "bwa-mem"
+    },
+    {
+      "name": "variant_caller",
+      "class": "string",
+      "default": "haplotype-caller"
+    },
+    {
+      "name": "fastp",
+      "class": "boolean",
+      "default": true
+    },
+    {
+      "name": "fastqc",
+      "class": "boolean",
+      "default": true
+    }
+  ],
+
+  "outputSpec": [
+    {
+      "name": "results",
+      "class": "file",
+      "pattern": "results/**/*"
+    },
+    {
+      "name": "reports",
+      "class": "file",
+      "pattern": "results/**/nextflow_reports/**/*"
+    }
+  ],
+
+  "runSpec": {
+    "interpreter": "bash",
+    "file": "code.sh",
+    "distribution": "Ubuntu",
+    "release": "20.04"
+  },
+
+  "access": {
+    "network": ["*"]
+  }
+}

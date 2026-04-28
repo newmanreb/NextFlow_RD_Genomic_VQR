@@ -12,7 +12,7 @@ process sortBam {
 
     tag "$bamFile"
 
-    publishDir("$params.outdir/alignment/${params.aligner}/filtered_sorted", mode: "copy")
+    //publishDir("$params.outdir/alignment/${params.aligner}/filtered_sorted", mode: "copy")
 
     input:
     tuple val(sample_id), file(bamFile)
